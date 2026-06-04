@@ -9,6 +9,21 @@ import { getAuthedGoogleClient, syncGoogleQuota } from '../google/google.service
 import { streamGoogleFile } from './stream-google-file.js'
 
 export const fileRouter = Router()
+
+fileRouter.get('/preview/:token', async (req, res, next) => {
+  try {
+    const token = String(req.params.token)
+    const preview = await prisma.filePreviewToken.findFirst({
+      where: { tokenHash: hashToken(token), expiresAt: { gt: new Date() } },
+      include: { file: { include: { connectedAccount: true } } },
+    })
+    if (!preview || preview.file.status !== 'active') return res.status(404).json({ code: 'PREVIEW_NOT_FOUND', message: 'Preview token not found.' })
+    return streamGoogleFile(preview.file, req.headers.range, res, { disposition: 'inline' })
+  } catch (error) {
+    return next(error)
+  }
+})
+
 fileRouter.use(requireAuth)
 
 fileRouter.get('/', async (req: AuthRequest, res, next) => {
@@ -77,20 +92,6 @@ fileRouter.post('/:id/preview-token', async (req: AuthRequest, res, next) => {
     const token = randomToken(32)
     await prisma.filePreviewToken.create({ data: { fileId: file.id, userId: req.user!.id, tokenHash: hashToken(token), expiresAt: new Date(Date.now() + 10 * 60_000) } })
     return res.status(201).json({ url: `${req.protocol}://${req.get('host')}/files/preview/${token}` })
-  } catch (error) {
-    return next(error)
-  }
-})
-
-fileRouter.get('/preview/:token', async (req, res, next) => {
-  try {
-    const token = String(req.params.token)
-    const preview = await prisma.filePreviewToken.findFirst({
-      where: { tokenHash: hashToken(token), expiresAt: { gt: new Date() } },
-      include: { file: { include: { connectedAccount: true } } },
-    })
-    if (!preview || preview.file.status !== 'active') return res.status(404).json({ code: 'PREVIEW_NOT_FOUND', message: 'Preview token not found.' })
-    return streamGoogleFile(preview.file, req.headers.range, res)
   } catch (error) {
     return next(error)
   }
