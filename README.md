@@ -1,0 +1,436 @@
+# 9Drive
+
+9Drive is a storage gateway web app for connecting multiple Google Drive accounts into one virtual storage dashboard. Users can connect Google Drive accounts, track quota, upload files, organize files with virtual folders, preview files, and let the backend route uploads to the Drive account with enough free space.
+
+## Features
+
+- React + Vite frontend.
+- Express + TypeScript backend.
+- MySQL database with Prisma migrations.
+- Bearer token authentication.
+- Google OAuth login for connected Drive accounts.
+- Global Google OAuth config stored encrypted in DB.
+- Direct upload stream to Google Drive. Files are not stored on the server.
+- Multi-account storage quota summary.
+- Quota tracker page.
+- Virtual folders.
+- File preview, download, rename, move, and delete actions.
+- Bottom-right upload progress panel.
+
+## Project Structure
+
+```txt
+backend/   Express API, Prisma schema, Google Drive integration
+frontend/  Vite React app
+```
+
+## Requirements
+
+- Node.js 20+
+- npm
+- MySQL running locally
+- Google Cloud project
+- Google OAuth Client ID and Client Secret
+
+Default database used by this project:
+
+```txt
+host: localhost
+port: 3306
+database: 9drive
+user: root
+password: empty
+```
+
+## 1. Clone And Install
+
+```bash
+git clone git@github.com:zenhosta/9drive.git
+cd 9drive
+```
+
+Install backend dependencies:
+
+```bash
+cd backend
+npm install
+```
+
+Install frontend dependencies:
+
+```bash
+cd ../frontend
+npm install
+```
+
+## 2. Create MySQL Database
+
+Create database:
+
+```sql
+CREATE DATABASE 9drive;
+```
+
+If using MySQL CLI:
+
+```bash
+mysql -u root -e "CREATE DATABASE IF NOT EXISTS 9drive;"
+```
+
+## 3. Backend Environment
+
+Create `backend/.env`:
+
+```env
+DATABASE_URL="mysql://root@localhost:3306/9drive"
+APP_PORT=4000
+FRONTEND_URL="http://localhost:5173"
+JWT_ACCESS_SECRET="change-this-jwt-secret-at-least-32-chars"
+TOKEN_ENCRYPTION_KEY="change-this-encryption-key-32bytes!"
+ACCESS_TOKEN_TTL_SECONDS=900
+REFRESH_TOKEN_TTL_DAYS=30
+MAX_UPLOAD_BYTES=5368709120
+
+# Used only by `npm run seed:google-config`.
+# These values are encrypted and stored in DB as global Google OAuth config.
+GOOGLE_CLIENT_ID=""
+GOOGLE_CLIENT_SECRET=""
+GOOGLE_REDIRECT_URI="http://localhost:4000/connected-accounts/google/callback"
+```
+
+Important:
+
+- `JWT_ACCESS_SECRET` should be long and random.
+- `TOKEN_ENCRYPTION_KEY` should be long and random.
+- Do not commit `backend/.env`.
+- Google OAuth credentials are used by the seed script, then stored encrypted in the database.
+
+## 4. Frontend Environment
+
+Create or confirm `frontend/.env`:
+
+```env
+VITE_API_URL=http://localhost:4000
+```
+
+## 5. Run Prisma Migrations
+
+```bash
+cd backend
+npm run prisma:migrate
+```
+
+If Prisma client generation is blocked on Windows by a running Node process, stop running backend/frontend dev servers and run:
+
+```bash
+npx prisma generate
+```
+
+## 6. Google Cloud Setup
+
+Google setup is done in Google Cloud Console, not Google Search Console. Google Search Console is for website indexing/search ownership. OAuth and Drive API are managed in Google Cloud Console.
+
+Open Google Cloud Console:
+
+```txt
+https://console.cloud.google.com/
+```
+
+### 6.1 Create Or Select Project
+
+1. Open Google Cloud Console.
+2. Click project selector in top bar.
+3. Create a new project or select an existing project.
+4. Remember the project name because OAuth client and Drive API must be in the same project.
+
+### 6.2 Enable Google Drive API
+
+1. Go to:
+
+```txt
+APIs & Services -> Library
+```
+
+2. Search:
+
+```txt
+Google Drive API
+```
+
+3. Open `Google Drive API`.
+4. Click `Enable`.
+5. Wait a few minutes if Google says the API was enabled recently.
+
+Direct URL pattern:
+
+```txt
+https://console.developers.google.com/apis/api/drive.googleapis.com/overview?project=YOUR_PROJECT_ID
+```
+
+If Google Drive API is disabled, you will see an error like:
+
+```txt
+Google Drive API has not been used in project ... before or it is disabled.
+```
+
+### 6.3 Configure OAuth Consent Screen
+
+1. Go to:
+
+```txt
+APIs & Services -> OAuth consent screen
+```
+
+2. Choose app type:
+
+```txt
+External
+```
+
+3. Fill required fields:
+
+```txt
+App name
+User support email
+Developer contact email
+```
+
+4. Add scopes:
+
+```txt
+https://www.googleapis.com/auth/drive.file
+https://www.googleapis.com/auth/userinfo.email
+https://www.googleapis.com/auth/userinfo.profile
+```
+
+5. If publishing status is `Testing`, add test users.
+
+Add every Google account that will test the app:
+
+```txt
+OAuth consent screen -> Test users -> Add users
+```
+
+If you do not add test users, Google may show:
+
+```txt
+Access blocked: app has not completed the Google verification process
+Error 403: access_denied
+```
+
+### 6.4 Create OAuth Client
+
+1. Go to:
+
+```txt
+APIs & Services -> Credentials
+```
+
+2. Click:
+
+```txt
+Create Credentials -> OAuth client ID
+```
+
+3. Application type:
+
+```txt
+Web application
+```
+
+4. Add authorized JavaScript origin:
+
+```txt
+http://localhost:5173
+```
+
+5. Add authorized redirect URI:
+
+```txt
+http://localhost:4000/connected-accounts/google/callback
+```
+
+6. Click Create.
+7. Copy:
+
+```txt
+Client ID
+Client Secret
+```
+
+### 6.5 Seed Google OAuth Config
+
+Put values into `backend/.env`:
+
+```env
+GOOGLE_CLIENT_ID="your-client-id"
+GOOGLE_CLIENT_SECRET="your-client-secret"
+GOOGLE_REDIRECT_URI="http://localhost:4000/connected-accounts/google/callback"
+```
+
+Then run:
+
+```bash
+cd backend
+npm run seed:google-config
+```
+
+This stores the Google OAuth config as a global encrypted provider config in MySQL. Users only need to click `Connect Drive` in the frontend.
+
+## 7. Run Development Servers
+
+Start backend:
+
+```bash
+cd backend
+npm run dev
+```
+
+Backend runs at:
+
+```txt
+http://localhost:4000
+```
+
+Start frontend:
+
+```bash
+cd frontend
+npm run dev
+```
+
+Frontend runs at:
+
+```txt
+http://localhost:5173
+```
+
+## 8. Manual Test Flow
+
+1. Open frontend:
+
+```txt
+http://localhost:5173
+```
+
+2. Register a user.
+3. Open `Settings`.
+4. Click `Connect Drive`.
+5. Google OAuth popup opens.
+6. Approve access.
+7. Popup closes.
+8. Connected Google account appears.
+9. Open `Quota Tracker`.
+10. Confirm quota appears.
+11. Open `All Files`.
+12. Create a virtual folder.
+13. Upload a file.
+14. Watch bottom-right upload progress.
+15. Right-click file row for actions:
+
+```txt
+View
+Download
+Rename
+Move to Folder
+Delete
+```
+
+## API Overview
+
+Auth:
+
+```txt
+POST /auth/register
+POST /auth/login
+POST /auth/refresh
+POST /auth/logout
+GET /auth/me
+```
+
+Google accounts:
+
+```txt
+GET /connected-accounts/google/connect-url
+GET /connected-accounts/google/callback
+GET /connected-accounts
+POST /connected-accounts/:id/sync-quota
+DELETE /connected-accounts/:id
+```
+
+Storage:
+
+```txt
+GET /storage/summary
+```
+
+Folders:
+
+```txt
+GET /folders
+GET /folders/recent?limit=4
+POST /folders
+DELETE /folders/:id
+```
+
+Files:
+
+```txt
+GET /files
+GET /files/:id
+PATCH /files/:id
+GET /files/:id/view-url
+GET /files/:id/download
+DELETE /files/:id
+```
+
+Uploads:
+
+```txt
+POST /uploads
+```
+
+Upload is `multipart/form-data`. Metadata fields should be appended before the file:
+
+```txt
+sizeBytes
+fileName
+mimeType
+folderId optional
+file
+```
+
+## Security Notes
+
+- Backend never stores uploaded files on disk.
+- Uploads are streamed through the backend to Google Drive.
+- Google tokens are encrypted in MySQL.
+- Refresh tokens for app sessions are hashed in MySQL.
+- `backend/.env` is ignored by git.
+- Do not expose `TOKEN_ENCRYPTION_KEY` or `JWT_ACCESS_SECRET`.
+
+## Production Notes
+
+- Replace localhost redirect URIs with production URLs.
+- Add production domain to Google OAuth authorized origins.
+- Set OAuth consent screen to production when ready.
+- Google may require verification for public apps.
+- Use strong secrets.
+- Put the backend behind HTTPS.
+- Consider secure cookies or stronger token storage for production.
+
+## Build
+
+Backend:
+
+```bash
+cd backend
+npm run build
+```
+
+Frontend:
+
+```bash
+cd frontend
+npm run build
+```
