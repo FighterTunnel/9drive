@@ -189,10 +189,8 @@ export function AllFilesPage() {
   async function viewFile() {
     if (!activeFile?.id) return
     if (previewUrl) URL.revokeObjectURL(previewUrl)
-    const response = await fetch(`${API_URL}/files/${activeFile.id}/download`, { headers: { Authorization: `Bearer ${getAccessToken()}` } })
-    if (!response.ok) throw new Error('Preview failed')
-    const blob = await response.blob()
-    setPreviewUrl(URL.createObjectURL(blob))
+    const data = await apiFetch<{ url: string }>(`/files/${activeFile.id}/preview-token`, { method: 'POST' })
+    setPreviewUrl(data.url)
     setPreviewOpen(true)
     setContextMenu({ x: 0, y: 0, file: null })
   }
@@ -267,7 +265,6 @@ export function AllFilesPage() {
   }
 
   function closePreview() {
-    if (previewUrl) URL.revokeObjectURL(previewUrl)
     setPreviewUrl('')
     setPreviewOpen(false)
   }

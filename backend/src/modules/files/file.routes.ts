@@ -6,6 +6,7 @@ import { env } from '../../config/env.js'
 import { requireAuth, type AuthRequest } from '../../middleware/auth.middleware.js'
 import { hashToken, randomToken } from '../../utils/crypto.js'
 import { getAuthedGoogleClient, syncGoogleQuota } from '../google/google.service.js'
+import { streamGoogleFile } from './stream-google-file.js'
 
 export const fileRouter = Router()
 fileRouter.use(requireAuth)
@@ -69,6 +70,32 @@ fileRouter.delete('/:id/share', async (req: AuthRequest, res, next) => {
   }
 })
 
+fileRouter.post('/:id/preview-token', async (req: AuthRequest, res, next) => {
+  try {
+    const fileId = String(req.params.id)
+    const file = await prisma.file.findFirstOrThrow({ where: { id: fileId, userId: req.user!.id, status: 'active' } })
+    const token = randomToken(32)
+    await prisma.filePreviewToken.create({ data: { fileId: file.id, userId: req.user!.id, tokenHash: hashToken(token), expiresAt: new Date(Date.now() + 10 * 60_000) } })
+    return res.status(201).json({ url: `${req.protocol}://${req.get('host')}/files/preview/${token}` })
+  } catch (error) {
+    return next(error)
+  }
+})
+
+fileRouter.get('/preview/:token', async (req, res, next) => {
+  try {
+    const token = String(req.params.token)
+    const preview = await prisma.filePreviewToken.findFirst({
+      where: { tokenHash: hashToken(token), expiresAt: { gt: new Date() } },
+      include: { file: { include: { connectedAccount: true } } },
+    })
+    if (!preview || preview.file.status !== 'active') return res.status(404).json({ code: 'PREVIEW_NOT_FOUND', message: 'Preview token not found.' })
+    return streamGoogleFile(preview.file, req.headers.range, res)
+  } catch (error) {
+    return next(error)
+  }
+})
+
 fileRouter.get('/:id/view-url', async (req: AuthRequest, res, next) => {
   try {
     const fileId = String(req.params.id)
@@ -86,12 +113,9 @@ fileRouter.get('/:id/download', async (req: AuthRequest, res, next) => {
   try {
     const fileId = String(req.params.id)
     const file = await prisma.file.findFirstOrThrow({ where: { id: fileId, userId: req.user!.id }, include: { connectedAccount: true } })
-    const auth = await getAuthedGoogleClient(file.connectedAccount)
-    const drive = google.drive({ version: 'v3', auth })
-    const download = await drive.files.get({ fileId: file.providerFileId, alt: 'media' }, { responseType: 'stream' })
     res.setHeader('Content-Type', file.mimeType)
     res.setHeader('Content-Disposition', `attachment; filename="${file.name.replaceAll('"', '')}"`)
-    return download.data.pipe(res)
+    return streamGoogleFile(file, req.headers.range, res)
   } catch (error) {
     return next(error)
   }

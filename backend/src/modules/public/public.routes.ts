@@ -1,8 +1,7 @@
 import { Router } from 'express'
-import { google } from 'googleapis'
 import { prisma } from '../../config/prisma.js'
 import { hashToken } from '../../utils/crypto.js'
-import { getAuthedGoogleClient } from '../google/google.service.js'
+import { streamGoogleFile } from '../files/stream-google-file.js'
 
 export const publicRouter = Router()
 
@@ -27,12 +26,9 @@ publicRouter.get('/files/:token', async (req, res, next) => {
 publicRouter.get('/files/:token/download', async (req, res, next) => {
   try {
     const file = await findSharedFile(String(req.params.token))
-    const auth = await getAuthedGoogleClient(file.connectedAccount)
-    const drive = google.drive({ version: 'v3', auth })
-    const download = await drive.files.get({ fileId: file.providerFileId, alt: 'media' }, { responseType: 'stream' })
     res.setHeader('Content-Type', file.mimeType)
     res.setHeader('Content-Disposition', `attachment; filename="${file.name.replaceAll('"', '')}"`)
-    return download.data.pipe(res)
+    return streamGoogleFile(file, req.headers.range, res)
   } catch (error) {
     return next(error)
   }
