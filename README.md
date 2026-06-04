@@ -17,6 +17,12 @@
 - File preview, download, rename, move, and delete actions.
 - Bottom-right upload progress panel.
 
+## Preview
+
+![9Drive dashboard preview](https://i.ibb.co.com/HLjG3JRf/image.png)
+
+![9Drive shared file preview](https://i.ibb.co.com/QLpYGmx/image.png)
+
 ## Project Structure
 
 ```txt
