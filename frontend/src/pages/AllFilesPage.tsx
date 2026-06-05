@@ -89,6 +89,8 @@ export function AllFilesPage() {
   const [shareUrl, setShareUrl] = useState('')
   const [copiedShareLink, setCopiedShareLink] = useState(false)
   const [previewUrl, setPreviewUrl] = useState('')
+  const [previewError, setPreviewError] = useState('')
+  const [previewLoading, setPreviewLoading] = useState(false)
   const [files, setFiles] = useState<FileItem[]>([])
   const [folders, setFolders] = useState<FolderItem[]>([])
   const [allFolders, setAllFolders] = useState<FolderItem[]>([])
@@ -343,11 +345,20 @@ export function AllFilesPage() {
 
   async function viewFile() {
     if (!activeFile?.id) return
-    const data = await apiFetch<{ url: string }>(`/files/${activeFile.id}/share`, { method: 'POST' })
-    const previewPath = new URL(data.url).pathname.replace(/\/embed$/, '')
-    setPreviewUrl(`${API_URL}${previewPath}/preview`)
+    setPreviewUrl('')
+    setPreviewError('')
+    setPreviewLoading(true)
     setPreviewOpen(true)
     setContextMenu({ x: 0, y: 0, file: null })
+    try {
+      const data = await apiFetch<{ path?: string; url: string }>(`/files/${activeFile.id}/preview-token`, { method: 'POST' })
+      const previewPath = data.path ?? new URL(data.url).pathname
+      setPreviewUrl(`${API_URL}${previewPath}`)
+    } catch (error) {
+      setPreviewError(error instanceof Error ? error.message : 'Failed to load preview')
+    } finally {
+      setPreviewLoading(false)
+    }
   }
 
   async function downloadFile() {
@@ -476,6 +487,8 @@ export function AllFilesPage() {
 
   function closePreview() {
     setPreviewUrl('')
+    setPreviewError('')
+    setPreviewLoading(false)
     setPreviewOpen(false)
   }
 
@@ -555,11 +568,13 @@ export function AllFilesPage() {
       </DummyModal>
       <DummyModal open={previewOpen} title="File Preview" description={activeFile?.name ?? ''} onClose={closePreview} className="overflow-hidden sm:max-w-[95vw] xl:max-w-[1400px]">
         <div className="overflow-hidden rounded-xl border border-slate-200 bg-slate-50">
-          {activePreviewKind === 'image' ? <img src={previewUrl} alt={activeFile?.name ?? 'File preview'} className="max-h-[72dvh] w-full object-contain sm:max-h-[80vh]" /> : null}
-          {activePreviewKind === 'video' ? <div className="drive-preview-video-shell"><video ref={previewVideoRef} controls playsInline preload="metadata"><source src={previewUrl} type={activeFile?.mimeType} /></video></div> : null}
-          {activePreviewKind === 'document' ? <iframe src={previewUrl} title={activeFile?.name ?? 'File preview'} className="h-[72dvh] w-full sm:h-[80vh]" /> : null}
-          {activePreviewKind === 'office' ? <iframe src={officeViewerUrl(previewUrl)} title={activeFile?.name ?? 'File preview'} className="h-[72dvh] w-full bg-white sm:h-[80vh]" /> : null}
-          {!activePreviewKind ? <div className="p-6 text-center text-sm text-slate-500">Preview not available for this file type. Use Download instead.</div> : null}
+          {previewLoading ? <div className="p-6 text-center text-sm font-semibold text-slate-500">Loading preview...</div> : null}
+          {previewError ? <div className="p-6 text-center text-sm text-red-600">{previewError}</div> : null}
+          {!previewLoading && !previewError && activePreviewKind === 'image' && previewUrl ? <img src={previewUrl} alt={activeFile?.name ?? 'File preview'} className="max-h-[72dvh] w-full object-contain sm:max-h-[80vh]" onError={() => setPreviewError('Failed to load preview.')} /> : null}
+          {!previewLoading && !previewError && activePreviewKind === 'video' && previewUrl ? <div className="drive-preview-video-shell"><video ref={previewVideoRef} controls playsInline preload="metadata" onError={() => setPreviewError('Failed to load preview.')}><source src={previewUrl} type={activeFile?.mimeType} /></video></div> : null}
+          {!previewLoading && !previewError && activePreviewKind === 'document' && previewUrl ? <iframe src={previewUrl} title={activeFile?.name ?? 'File preview'} className="h-[72dvh] w-full sm:h-[80vh]" /> : null}
+          {!previewLoading && !previewError && activePreviewKind === 'office' && previewUrl ? <iframe src={officeViewerUrl(previewUrl)} title={activeFile?.name ?? 'File preview'} className="h-[72dvh] w-full bg-white sm:h-[80vh]" /> : null}
+          {!previewLoading && !previewError && !activePreviewKind ? <div className="p-6 text-center text-sm text-slate-500">Preview not available for this file type. Use Download instead.</div> : null}
         </div>
       </DummyModal>
        {uploadProgress.open ? (

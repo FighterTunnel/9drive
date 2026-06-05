@@ -180,7 +180,8 @@ fileRouter.post('/:id/preview-token', async (req: AuthRequest, res, next) => {
     const file = await prisma.file.findFirstOrThrow({ where: { id: fileId, userId: req.user!.id, status: 'active' } })
     const token = randomToken(32)
     await prisma.filePreviewToken.create({ data: { fileId: file.id, userId: req.user!.id, tokenHash: hashToken(token), expiresAt: new Date(Date.now() + 10 * 60_000) } })
-    return res.status(201).json({ url: `${req.protocol}://${req.get('host')}/files/preview/${token}` })
+    const path = `/files/preview/${token}`
+    return res.status(201).json({ path, url: `${req.protocol}://${req.get('host')}${path}` })
   } catch (error) {
     return next(error)
   }
