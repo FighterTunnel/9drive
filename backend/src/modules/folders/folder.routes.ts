@@ -8,13 +8,19 @@ import { getAuthedGoogleClient, syncGoogleQuota } from '../google/google.service
 export const folderRouter = Router()
 folderRouter.use(requireAuth)
 
+const defaultFolderColor = '#3b82f6'
+const defaultFolderIconUrl = 'https://api.iconify.design/lucide:folder.svg'
+const iconUrlSchema = z.string().url().startsWith('https://api.iconify.design/lucide:').max(2048)
+const colorSchema = z.string().regex(/^(#[0-9a-fA-F]{6}|text-[a-z]+-[0-9]+)$/).max(64)
+
 const createSchema = z.object({
   name: z.string().min(1).max(255),
-  color: z.string().min(1).max(64).optional(),
+  color: colorSchema.optional(),
+  iconUrl: iconUrlSchema.nullable().optional(),
   parentId: z.string().nullable().optional(),
 })
 
-function serializeFolder(folder: { id: string; name: string; color: string; parentId?: string | null; createdAt: Date; updatedAt: Date }) {
+function serializeFolder(folder: { id: string; name: string; color: string; iconUrl?: string | null; parentId?: string | null; createdAt: Date; updatedAt: Date }) {
   return { ...folder, createdAt: folder.createdAt.toISOString(), updatedAt: folder.updatedAt.toISOString() }
 }
 
@@ -23,7 +29,7 @@ folderRouter.get('/', async (req: AuthRequest, res, next) => {
     const query = z.object({ parentId: z.string().nullable().optional(), all: z.string().optional() }).parse(req.query)
     const folders = await prisma.folder.findMany({
       where: { userId: req.user!.id, deletedAt: null, ...(query.all === '1' ? {} : { parentId: query.parentId ?? null }) },
-      select: { id: true, name: true, color: true, parentId: true, createdAt: true, updatedAt: true },
+      select: { id: true, name: true, color: true, iconUrl: true, parentId: true, createdAt: true, updatedAt: true },
       orderBy: { updatedAt: 'desc' },
     })
     return res.json({ folders: folders.map(serializeFolder) })
@@ -37,7 +43,7 @@ folderRouter.get('/recent', async (req: AuthRequest, res, next) => {
     const limit = Math.min(Number(req.query.limit ?? 4), 4)
     const folders = await prisma.folder.findMany({
       where: { userId: req.user!.id, deletedAt: null },
-      select: { id: true, name: true, color: true, parentId: true, createdAt: true, updatedAt: true },
+      select: { id: true, name: true, color: true, iconUrl: true, parentId: true, createdAt: true, updatedAt: true },
       orderBy: { updatedAt: 'desc' },
       take: limit,
     })
@@ -52,8 +58,8 @@ folderRouter.post('/', async (req: AuthRequest, res, next) => {
     const body = createSchema.parse(req.body)
     if (body.parentId) await prisma.folder.findFirstOrThrow({ where: { id: body.parentId, userId: req.user!.id, deletedAt: null } })
     const folder = await prisma.folder.create({
-      data: { userId: req.user!.id, name: body.name, color: body.color ?? 'text-blue-500', parentId: body.parentId ?? null },
-      select: { id: true, name: true, color: true, parentId: true, createdAt: true, updatedAt: true },
+      data: { userId: req.user!.id, name: body.name, color: body.color ?? defaultFolderColor, iconUrl: body.iconUrl ?? defaultFolderIconUrl, parentId: body.parentId ?? null },
+      select: { id: true, name: true, color: true, iconUrl: true, parentId: true, createdAt: true, updatedAt: true },
     })
     return res.status(201).json({ folder: serializeFolder(folder) })
   } catch (error) {
@@ -86,12 +92,12 @@ folderRouter.patch('/:id', async (req: AuthRequest, res, next) => {
 
     const folder = await prisma.folder.updateMany({
       where: { id: folderId, userId: req.user!.id, deletedAt: null },
-      data: { ...(body.name ? { name: body.name } : {}), ...(body.color ? { color: body.color } : {}), ...(body.parentId !== undefined ? { parentId: body.parentId } : {}) },
+      data: { ...(body.name ? { name: body.name } : {}), ...(body.color ? { color: body.color } : {}), ...(body.iconUrl !== undefined ? { iconUrl: body.iconUrl } : {}), ...(body.parentId !== undefined ? { parentId: body.parentId } : {}) },
     })
     if (folder.count === 0) return res.status(404).json({ code: 'FOLDER_NOT_FOUND', message: 'Folder not found.' })
     const updated = await prisma.folder.findFirstOrThrow({
       where: { id: folderId, userId: req.user!.id },
-      select: { id: true, name: true, color: true, parentId: true, createdAt: true, updatedAt: true },
+      select: { id: true, name: true, color: true, iconUrl: true, parentId: true, createdAt: true, updatedAt: true },
     })
     return res.json({ folder: serializeFolder(updated) })
   } catch (error) {
