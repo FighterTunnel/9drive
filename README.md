@@ -1,3 +1,5 @@
+![9Drive cover](https://i.ibb.co.com/35BySv1C/image.png)
+
 # 9Drive
 
 9Drive is a storage gateway web app for connecting multiple Google Drive accounts into one virtual storage dashboard. Users can connect Google Drive accounts, track quota, upload files, organize files with virtual folders, preview files, and let the backend route uploads to the Drive account with enough free space.
