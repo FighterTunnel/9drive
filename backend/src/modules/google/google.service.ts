@@ -11,6 +11,8 @@ export function createOAuthClient(config: ProviderConfig) {
 }
 
 export async function getAuthedGoogleClient(account: ConnectedAccount) {
+  if (!account.accessTokenEncrypted || !account.refreshTokenEncrypted || !account.tokenExpiresAt) throw new Error('Google account tokens are missing.')
+  if (!account.providerConfigId) throw new Error('Google provider config is missing.')
   const config = await prisma.providerConfig.findUniqueOrThrow({ where: { id: account.providerConfigId } })
   const client = createOAuthClient(config)
   client.setCredentials({

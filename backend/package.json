@@ -6,15 +6,21 @@
     "dev": "tsx watch src/server.ts",
     "build": "tsc",
     "start": "node dist/server.js",
+    "start:deploy": "npm run db:migrate:deploy && node dist/server.js",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
-    "seed:google-config": "tsx src/scripts/seed-google-config.ts"
+    "db:migrate:deploy": "prisma migrate deploy",
+    "seed:google-config": "tsx src/scripts/seed-google-config.ts",
+    "seed:google-config:docker": "tsx src/scripts/seed-google-config-if-present.ts",
+    "test:s3": "tsx src/scripts/test-s3-connection.ts"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "description": "",
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.954.0",
+    "@aws-sdk/lib-storage": "^3.954.0",
     "@prisma/client": "^6.19.3",
     "argon2": "^0.44.0",
     "busboy": "^1.6.0",

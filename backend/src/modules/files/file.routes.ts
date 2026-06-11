@@ -6,7 +6,8 @@ import { env } from '../../config/env.js'
 import { requireAuth, type AuthRequest } from '../../middleware/auth.middleware.js'
 import { hashToken, randomToken } from '../../utils/crypto.js'
 import { getAuthedGoogleClient, syncGoogleAppFolderFiles, syncGoogleQuota } from '../google/google.service.js'
-import { streamGoogleFile } from './stream-google-file.js'
+import { deleteS3Object, syncS3Quota } from '../s3/s3.service.js'
+import { streamProviderFile } from './stream-file.js'
 
 export const fileRouter = Router()
 
@@ -18,7 +19,7 @@ fileRouter.get('/preview/:token', async (req, res, next) => {
       include: { file: { include: { connectedAccount: true } } },
     })
     if (!preview || preview.file.status !== 'active') return res.status(404).json({ code: 'PREVIEW_NOT_FOUND', message: 'Preview token not found.' })
-    return streamGoogleFile(preview.file, req.headers.range, res, { disposition: 'inline' })
+    return streamProviderFile(preview.file, req.headers.range, res, { disposition: 'inline' })
   } catch (error) {
     return next(error)
   }
@@ -59,9 +60,12 @@ fileRouter.delete('/batch', async (req: AuthRequest, res, next) => {
 
     for (const file of files) {
       try {
-        const auth = await getAuthedGoogleClient(file.connectedAccount)
-        const drive = google.drive({ version: 'v3', auth })
-        await drive.files.delete({ fileId: file.providerFileId })
+        if (file.provider === 's3') await deleteS3Object(file)
+        else {
+          const auth = await getAuthedGoogleClient(file.connectedAccount)
+          const drive = google.drive({ version: 'v3', auth })
+          await drive.files.delete({ fileId: file.providerFileId })
+        }
         deletedIds.push(file.id)
         syncedAccountIds.add(file.connectedAccountId)
       } catch (error) {
@@ -70,7 +74,11 @@ fileRouter.delete('/batch', async (req: AuthRequest, res, next) => {
     }
 
     if (deletedIds.length > 0) await prisma.file.updateMany({ where: { id: { in: deletedIds }, userId: req.user!.id }, data: { status: 'deleted', deletedAt: new Date() } })
-    for (const accountId of syncedAccountIds) await syncGoogleQuota(accountId).catch(() => undefined)
+    for (const accountId of syncedAccountIds) {
+      const account = files.find((file) => file.connectedAccountId === accountId)?.connectedAccount
+      if (account?.provider === 's3') await syncS3Quota(accountId).catch(() => undefined)
+      else await syncGoogleQuota(accountId).catch(() => undefined)
+    }
     if (deletedIds.length === 0 && failed.length > 0) return res.status(400).json({ code: 'FILES_DELETE_FAILED', message: 'No files were deleted.', deleted: 0, failed })
     return res.json({ status: 'ok', deleted: deletedIds.length, failed })
   } catch (error) {
@@ -138,10 +146,9 @@ fileRouter.patch('/:id', async (req: AuthRequest, res, next) => {
     const body = z.object({ name: z.string().min(1).max(255).optional(), folderId: z.string().nullable().optional() }).parse(req.body)
     const fileId = String(req.params.id)
     const file = await prisma.file.findFirstOrThrow({ where: { id: fileId, userId: req.user!.id }, include: { connectedAccount: true } })
-    const auth = await getAuthedGoogleClient(file.connectedAccount)
-    const drive = google.drive({ version: 'v3', auth })
+    const drive = file.provider === 's3' ? null : google.drive({ version: 'v3', auth: await getAuthedGoogleClient(file.connectedAccount) })
     if (body.folderId) await prisma.folder.findFirstOrThrow({ where: { id: body.folderId, userId: req.user!.id, deletedAt: null } })
-    if (body.name) await drive.files.update({ fileId: file.providerFileId, requestBody: { name: body.name } })
+    if (body.name && drive) await drive.files.update({ fileId: file.providerFileId, requestBody: { name: body.name } })
     const updated = await prisma.file.update({ where: { id: file.id }, data: { ...(body.name ? { name: body.name } : {}), ...(body.folderId !== undefined ? { folderId: body.folderId } : {}) }, include: { connectedAccount: { select: { id: true, email: true, provider: true } }, folder: { select: { id: true, name: true } } } })
     return res.json({ file: { ...updated, sizeBytes: updated.sizeBytes.toString() } })
   } catch (error) {
@@ -191,6 +198,7 @@ fileRouter.get('/:id/view-url', async (req: AuthRequest, res, next) => {
   try {
     const fileId = String(req.params.id)
     const file = await prisma.file.findFirstOrThrow({ where: { id: fileId, userId: req.user!.id }, include: { connectedAccount: true } })
+    if (file.provider === 's3') return res.json({ url: null })
     const auth = await getAuthedGoogleClient(file.connectedAccount)
     const drive = google.drive({ version: 'v3', auth })
     const metadata = await drive.files.get({ fileId: file.providerFileId, fields: 'webViewLink,webContentLink' })
@@ -204,7 +212,7 @@ fileRouter.get('/:id/download', async (req: AuthRequest, res, next) => {
   try {
     const fileId = String(req.params.id)
     const file = await prisma.file.findFirstOrThrow({ where: { id: fileId, userId: req.user!.id }, include: { connectedAccount: true } })
-    return streamGoogleFile(file, req.headers.range, res, { disposition: 'attachment' })
+    return streamProviderFile(file, req.headers.range, res, { disposition: 'attachment' })
   } catch (error) {
     return next(error)
   }
@@ -214,11 +222,15 @@ fileRouter.delete('/:id', async (req: AuthRequest, res, next) => {
   try {
     const fileId = String(req.params.id)
     const file = await prisma.file.findFirstOrThrow({ where: { id: fileId, userId: req.user!.id }, include: { connectedAccount: true } })
-    const auth = await getAuthedGoogleClient(file.connectedAccount)
-    const drive = google.drive({ version: 'v3', auth })
-    await drive.files.delete({ fileId: file.providerFileId })
+    if (file.provider === 's3') await deleteS3Object(file)
+    else {
+      const auth = await getAuthedGoogleClient(file.connectedAccount)
+      const drive = google.drive({ version: 'v3', auth })
+      await drive.files.delete({ fileId: file.providerFileId })
+    }
     await prisma.file.update({ where: { id: file.id }, data: { status: 'deleted', deletedAt: new Date() } })
-    await syncGoogleQuota(file.connectedAccountId)
+    if (file.provider === 's3') await syncS3Quota(file.connectedAccountId)
+    else await syncGoogleQuota(file.connectedAccountId)
     return res.json({ status: 'ok' })
   } catch (error) {
     return next(error)

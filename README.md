@@ -394,12 +394,20 @@ mysql:    localhost:3306
 The backend container runs Prisma migrations automatically on startup:
 
 ```txt
-npx prisma migrate deploy
+npm run db:migrate:deploy
 ```
 
-### 3. Seed Google OAuth Config In Docker
+This applies pending migrations such as S3 storage support before the API starts, so deployments from an older database can update safely without dropping data.
 
-After containers are running, seed the global Google OAuth config:
+It also seeds the global Google OAuth config automatically when `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` are set to real values in `.env`. If those values are blank or still placeholders, the backend still starts and logs a warning. Google connect/sign-in will be unavailable until you set real Google OAuth credentials and restart the stack:
+
+```bash
+docker compose up -d --build
+```
+
+### 3. Seed Google OAuth Config Manually
+
+Automatic Docker startup seeding is usually enough. If you update Google OAuth values while containers are already running, seed the global Google OAuth config manually:
 
 ```bash
 docker compose exec backend npm run seed:google-config
@@ -437,6 +445,25 @@ docker compose down -v
 - Put frontend/backend behind HTTPS reverse proxy.
 - Rebuild frontend when `VITE_API_URL` changes because Vite embeds env at build time.
 - Rebuild frontend when `VITE_RECAPTCHA_SITE_KEY` changes because Vite embeds env at build time.
+
+### Non-Docker Production Startup
+
+Run production migrations before starting the backend:
+
+```bash
+cd backend
+npm run db:migrate:deploy
+npm run start
+```
+
+Or use the combined command:
+
+```bash
+cd backend
+npm run start:deploy
+```
+
+`npm run db:migrate:deploy` uses Prisma production migrations and does not reset the database. If Prisma reports migration drift, stop the deploy and repair migration history first; do not run `prisma migrate reset` on production.
 
 ## 8. Manual Test Flow
 

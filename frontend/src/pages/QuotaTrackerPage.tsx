@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { CheckCircle, Cloud, Filter, Gauge, Link2, RefreshCw } from 'lucide-react'
+import { CheckCircle, Cloud, Database, Filter, Gauge, Link2, RefreshCw } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { PageHeader } from '@/components/drive/PageHeader'
@@ -8,6 +8,26 @@ import { cn } from '@/lib/utils'
 
 type StorageSummary = { totalBytes: string; usedBytes: string; availableBytes: string }
 type ConnectedAccount = { id: string; email: string; provider: string; status: string; storageAccount?: { totalBytes: string | null; usedBytes: string; availableBytes: string | null; lastSyncedAt: string | null } | null }
+
+function providerLabel(provider: string) {
+  if (provider === 's3') return 'S3 Storage'
+  return 'Google Drive'
+}
+
+function ProviderIcon({ provider }: { provider: string }) {
+  const Icon = provider === 's3' ? Database : Cloud
+  return <Icon className="h-6 w-6" />
+}
+
+function storageLimitLabel(account: ConnectedAccount) {
+  if (account.provider === 's3' && account.storageAccount?.totalBytes === null) return 'Unlimited'
+  return formatBytes(account.storageAccount?.totalBytes)
+}
+
+function availableLabel(account: ConnectedAccount) {
+  if (account.provider === 's3' && account.storageAccount?.availableBytes === null) return 'Unlimited'
+  return formatBytes(account.storageAccount?.availableBytes)
+}
 
 function pct(account: ConnectedAccount) {
   const total = Number(account.storageAccount?.totalBytes ?? 0)
@@ -106,7 +126,7 @@ export function QuotaTrackerPage() {
           <Card className="col-span-full p-8 text-center">
             <Cloud className="mx-auto h-10 w-10 text-blue-600" />
             <h2 className="mt-4 text-xl font-extrabold">No connected drives</h2>
-            <p className="mt-2 text-sm text-slate-500">Connect Google Drive to start tracking quota.</p>
+            <p className="mt-2 text-sm text-slate-500">Connect Google Drive or S3-compatible storage to start tracking quota.</p>
             <Button className="mt-5" onClick={connectDrive}><Link2 className="h-4 w-4" />Connect Drive</Button>
           </Card>
         ) : accounts.map((account) => {
@@ -116,8 +136,8 @@ export function QuotaTrackerPage() {
             <Card key={account.id} className="overflow-hidden p-5">
               <div className="flex items-start justify-between gap-4">
                 <div className="flex items-center gap-3">
-                  <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-blue-600 text-white"><Cloud className="h-6 w-6" /></div>
-                  <div><h2 className="font-extrabold">Google Drive</h2><p className="text-sm text-slate-500">{account.email}</p></div>
+                  <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-blue-600 text-white"><ProviderIcon provider={account.provider} /></div>
+                  <div><h2 className="font-extrabold">{providerLabel(account.provider)}</h2><p className="text-sm text-slate-500">{account.email}</p></div>
                 </div>
                 <div className="flex gap-2"><Button variant="outline" size="icon" onClick={() => sync(account.id)} disabled={syncingAccountId === account.id}><RefreshCw className={syncingAccountId === account.id ? 'h-5 w-5 animate-spin' : 'h-5 w-5'} /></Button></div>
               </div>
@@ -127,7 +147,7 @@ export function QuotaTrackerPage() {
                   <span className="font-bold">{percent}%</span>
                 </div>
                 <div className="h-2 rounded-full bg-slate-100"><div className={cn('h-full rounded-full', color.split(' ')[0])} style={{ width: `${percent}%` }} /></div>
-                <div className="mt-3 flex items-center justify-between text-sm text-slate-500"><span>{formatBytes(account.storageAccount?.usedBytes)} / {formatBytes(account.storageAccount?.totalBytes)}</span><span>Available {formatBytes(account.storageAccount?.availableBytes)}</span></div>
+                <div className="mt-3 flex items-center justify-between text-sm text-slate-500"><span>{formatBytes(account.storageAccount?.usedBytes)} / {storageLimitLabel(account)}</span><span>Available {availableLabel(account)}</span></div>
               </div>
             </Card>
           )
